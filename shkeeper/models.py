@@ -219,7 +219,7 @@ class Invoice(db.Model):
     )
     addresses = db.relationship("InvoiceAddress", backref="invoice", lazy=True)
     crypto = db.Column(db.String)
-    addr = db.Column(db.String)
+    addr = db.Column(db.String, index=True)
     external_id = db.Column(db.String)
     fiat = db.Column(db.String)
     callback_url = db.Column(db.String)
@@ -234,6 +234,9 @@ class Invoice(db.Model):
         db.DateTime,
         default=db.func.current_timestamp(),
         onupdate=db.func.current_timestamp(),
+    )
+    __table_args__ = (
+        db.Index('ix_invoice_addr', 'addr'),
     )
 
     def to_json(self):
@@ -286,8 +289,12 @@ class Invoice(db.Model):
             tx.invoice.amount_fiat * (tx.invoice.wallet.ulimit / 100)
         ):
             tx.invoice.status = InvoiceStatus.PAID
+            # Освобождаем адрес при оплате
+            InvoiceAddress.release_address(tx.invoice.addr)
         else:
             tx.invoice.status = InvoiceStatus.OVERPAID
+            # Освобождаем адрес при переплате
+            InvoiceAddress.release_address(tx.invoice.addr)
 
         db.session.commit()
         return self
@@ -327,15 +334,15 @@ class Invoice(db.Model):
                 if invoice_address and not crypto_is_lightning:
                     invoice.addr = invoice_address.addr
                 else:
-                    invoice.addr = crypto.mkaddr(
-                        details={"value": invoice.amount_crypto}
+                    # Получаем свободный адрес или создаем новый
+                    invoice.addr = InvoiceAddress.get_free_address(
+                        crypto,
+                        amount_crypto=invoice.amount_crypto
                     )
                     db.session.commit()
-                    invoice_address = InvoiceAddress()
-                    invoice_address.invoice_id = invoice.id
-                    invoice_address.crypto = invoice.crypto
-                    invoice_address.addr = invoice.addr
-                    db.session.add(invoice_address)
+
+                    # Привязываем адрес к инвойсу
+                    InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
 
         else:
             # creating new invoice
@@ -349,15 +356,16 @@ class Invoice(db.Model):
             invoice.amount_crypto, invoice.exchange_rate = rate.convert(
                 invoice.amount_fiat
             )
-            invoice.addr = crypto.mkaddr(details={"value": invoice.amount_crypto})
+            # Получаем свободный адрес или создаем новый
+            invoice.addr = InvoiceAddress.get_free_address(
+                crypto,
+                amount_crypto=invoice.amount_crypto
+            )
             db.session.add(invoice)
             db.session.commit()
 
-            invoice_address = InvoiceAddress()
-            invoice_address.invoice_id = invoice.id
-            invoice_address.crypto = invoice.crypto
-            invoice_address.addr = invoice.addr
-            db.session.add(invoice_address)
+            # Привязываем адрес к инвойсу
+            InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
 
         if crypto_is_lightning and crypto.LIGHTNING_GENERATE_ONCHAIN_ADDRESS:
             app.logger.debug("Lightning requested on-chain address...")
@@ -372,11 +380,8 @@ class Invoice(db.Model):
                     app.logger.debug("Using already existing on-chain BTC address")
                 else:
                     app.logger.debug("Generating a new on-chain BTC address")
-                    btc_address = InvoiceAddress()
-                    btc_address.crypto = "BTC"
-                    btc_address.addr = btc.mkaddr()
-                    btc_address.invoice_id = invoice.id
-                    db.session.add(btc_address)
+                    btc_addr = InvoiceAddress.get_free_address(btc, amount_crypto=None)
+                    InvoiceAddress.assign_to_invoice(btc_addr, invoice.id)
             else:
                 raise Exception(
                     "Lightning requested on-chain address generation but BTC wallet is not enabled in configuration"
@@ -641,11 +646,104 @@ class Setting(db.Model):
 
 class InvoiceAddress(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
-    crypto = db.Column(db.String)
-    addr = db.Column(db.String)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=True)
+    crypto = db.Column(db.String, index=True)
+    addr = db.Column(db.String, index=True)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-    __table_args__ = (db.UniqueConstraint("invoice_id", "crypto", "addr"),)
+    __table_args__ = (
+        db.Index('ix_invoice_address_crypto_invoice_id', 'crypto', 'invoice_id'),
+    )
+
+    @classmethod
+    def get_free_address(cls, crypto, amount_crypto=None):
+        """
+        Получить свободный адрес из пула (invoice_id = NULL) или создать новый
+        """
+        from datetime import datetime, timedelta
+
+        # Для Lightning проверяем сумму
+        if "LIGHTNING" in crypto.crypto:
+            if amount_crypto is None:
+                # Создаем новый
+                new_addr = crypto.mkaddr(details={"value": amount_crypto})
+                return new_addr
+
+            # Ищем свободный Lightning адрес с точной суммой
+            threshold_time = datetime.utcnow() - timedelta(hours=1, minutes=30)
+
+            free_addr = db.session.query(cls.addr).join(
+                Invoice, cls.addr == Invoice.addr
+            ).filter(
+                cls.crypto == crypto.crypto,
+                cls.invoice_id == None,  # Свободный
+                Invoice.amount_crypto == amount_crypto,  # ТОЧНОЕ совпадение суммы
+                Invoice.created_at < threshold_time  # Старше 1.5 часа
+            ).with_for_update(skip_locked=True).first()
+
+            if free_addr:
+                return free_addr[0]
+
+            # Создаем новый
+            new_addr = crypto.mkaddr(details={"value": amount_crypto})
+            return new_addr
+
+        # Для обычных криптовалют
+        free_addr = db.session.query(cls.addr).filter(
+            cls.crypto == crypto.crypto,
+            cls.invoice_id == None  # Свободный адрес
+        ).with_for_update(skip_locked=True).first()
+
+        if free_addr:
+            return free_addr[0]
+
+        # Создаем новый
+        new_addr = crypto.mkaddr(details={"value": amount_crypto} if amount_crypto else {})
+
+        # Добавляем в пул
+        new_address_record = cls()
+        new_address_record.crypto = crypto.crypto
+        new_address_record.addr = new_addr
+        new_address_record.invoice_id = None
+        db.session.add(new_address_record)
+        db.session.flush()
+
+        return new_addr
+
+    @classmethod
+    def assign_to_invoice(cls, addr, invoice_id):
+        """
+        Привязать адрес к инвойсу (пометить как занятый)
+        """
+        address_record = cls.query.filter_by(addr=addr, invoice_id=None).first()
+        if address_record:
+            address_record.invoice_id = invoice_id
+            db.session.flush()
+
+    @classmethod
+    def release_address(cls, addr):
+        """
+        Освободить адрес (invoice_id = NULL)
+        """
+        address_records = cls.query.filter_by(addr=addr).filter(cls.invoice_id != None).all()
+        for record in address_records:
+            record.invoice_id = None
+        db.session.flush()
+
+    @classmethod
+    def get_stats(cls, crypto_name):
+        """
+        Статистика по адресам
+        """
+        total = cls.query.filter_by(crypto=crypto_name).count()
+        free = cls.query.filter_by(crypto=crypto_name, invoice_id=None).count()
+        busy = total - free
+
+        return {
+            "crypto": crypto_name,
+            "total_addresses": total,
+            "free_addresses": free,
+            "busy_addresses": busy
+        }
 
 
 class BitcoinLightningInvoice(db.Model):

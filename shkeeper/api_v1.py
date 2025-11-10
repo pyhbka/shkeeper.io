@@ -698,6 +698,74 @@ def decryption_key():
         return {"status": "error", "message": "Wallet is not encrypted"}
 
 
+@bp.get("/pool/stats")
+@api_key_required
+def get_pool_stats():
+    """
+    Получить статистику по пулу адресов для всех криптовалют
+
+    Response:
+    {
+        "status": "success",
+        "stats": {
+            "BTC": {
+                "crypto": "BTC",
+                "total_addresses": 150,
+                "free_addresses": 80,
+                "busy_addresses": 70
+            },
+            ...
+        }
+    }
+    """
+    try:
+        from shkeeper.modules.classes.crypto import Crypto
+
+        stats = {}
+        for crypto_name in Crypto.instances.keys():
+            stats[crypto_name] = InvoiceAddress.get_stats(crypto_name)
+
+        return {
+            "status": "success",
+            "stats": stats
+        }
+    except Exception as e:
+        app.logger.exception("Failed to get pool statistics")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@bp.get("/pool/stats/<crypto_name>")
+@api_key_required
+def get_pool_stats_for_crypto(crypto_name):
+    """
+    Получить статистику по пулу адресов для конкретной криптовалюты
+
+    Response:
+    {
+        "status": "success",
+        "crypto": "BTC",
+        "total_addresses": 150,
+        "free_addresses": 80,
+        "busy_addresses": 70
+    }
+    """
+    try:
+        stats = InvoiceAddress.get_stats(crypto_name)
+        return {
+            "status": "success",
+            **stats
+        }
+    except Exception as e:
+        app.logger.exception(f"Failed to get pool statistics for {crypto_name}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
 @bp.post("/test-callback-receiver")
 @api_key_required
 def test_callback_receiver():
