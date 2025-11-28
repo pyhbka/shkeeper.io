@@ -300,8 +300,9 @@ class Invoice(db.Model):
         return self
 
     @classmethod
-    def add(cls, crypto, request):
+    def add(cls, crypto, request, create_address=True):
         # {"external_id": "1234",  "fiat": "USD", "amount": 100.90, "callback_url": "https://blabla/callback.php"}
+        # create_address: если True - создать кошелек, если False - создать инвойс без кошелька
         crypto_is_lightning = "BTC-LIGHTNING" == crypto.crypto
         invoice = cls.query.filter_by(
             external_id=request["external_id"], callback_url=request["callback_url"]
@@ -327,22 +328,23 @@ class Invoice(db.Model):
                     invoice.amount_fiat
                 )
 
-                # if address for new crypto already exist, use it instead of generating a new one
-                invoice_address = InvoiceAddress.query.filter_by(
-                    invoice_id=invoice.id, crypto=crypto.crypto
-                ).first()
-                if invoice_address and not crypto_is_lightning:
-                    invoice.addr = invoice_address.addr
-                else:
-                    # Получаем свободный адрес или создаем новый
-                    invoice.addr = InvoiceAddress.get_free_address(
-                        crypto,
-                        amount_crypto=invoice.amount_crypto
-                    )
-                    db.session.commit()
+                if create_address:
+                    # if address for new crypto already exist, use it instead of generating a new one
+                    invoice_address = InvoiceAddress.query.filter_by(
+                        invoice_id=invoice.id, crypto=crypto.crypto
+                    ).first()
+                    if invoice_address and not crypto_is_lightning:
+                        invoice.addr = invoice_address.addr
+                    else:
+                        # Получаем свободный адрес или создаем новый
+                        invoice.addr = InvoiceAddress.get_free_address(
+                            crypto,
+                            amount_crypto=invoice.amount_crypto
+                        )
+                        db.session.commit()
 
-                    # Привязываем адрес к инвойсу
-                    InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
+                        # Привязываем адрес к инвойсу
+                        InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
 
         else:
             # creating new invoice
@@ -356,18 +358,22 @@ class Invoice(db.Model):
             invoice.amount_crypto, invoice.exchange_rate = rate.convert(
                 invoice.amount_fiat
             )
-            # Получаем свободный адрес или создаем новый
-            invoice.addr = InvoiceAddress.get_free_address(
-                crypto,
-                amount_crypto=invoice.amount_crypto
-            )
+
+            if create_address:
+                # Получаем свободный адрес или создаем новый
+                invoice.addr = InvoiceAddress.get_free_address(
+                    crypto,
+                    amount_crypto=invoice.amount_crypto
+                )
+
             db.session.add(invoice)
             db.session.commit()
 
-            # Привязываем адрес к инвойсу
-            InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
+            if create_address:
+                # Привязываем адрес к инвойсу
+                InvoiceAddress.assign_to_invoice(invoice.addr, invoice.id)
 
-        if crypto_is_lightning and crypto.LIGHTNING_GENERATE_ONCHAIN_ADDRESS:
+        if create_address and crypto_is_lightning and crypto.LIGHTNING_GENERATE_ONCHAIN_ADDRESS:
             app.logger.debug("Lightning requested on-chain address...")
             btc = Crypto.instances.get("BTC")
 

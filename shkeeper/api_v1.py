@@ -773,3 +773,137 @@ def test_callback_receiver():
     app.logger.info("=============== Test callback received ===================")
     app.logger.info(callback)
     return {"status": "success", "message": "callback logged"}, 202
+
+
+@bp.post("/<crypto_name>/invoice/<int:invoice_id>/get_address")
+@api_key_required
+def get_address_for_invoice(crypto_name, invoice_id):
+    """
+    Привязать адрес криптовалюты к существующему инвойсу.
+    Если адрес для данной крипты уже существует - вернуть его.
+    """
+    try:
+        try:
+            crypto = Crypto.instances[crypto_name]
+        except KeyError:
+            return {
+                "status": "error",
+                "message": f"{crypto_name} payment gateway is unavailable",
+            }
+
+        if not crypto.wallet.enabled:
+            return {
+                "status": "error",
+                "message": f"{crypto_name} payment gateway is unavailable",
+            }
+
+        if app.config.get("DISABLE_CRYPTO_WHEN_LAGS") and crypto.getstatus() != "Synced":
+            return {
+                "status": "error",
+                "message": f"{crypto_name} payment gateway is unavailable because of lagging",
+            }
+
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return {
+                "status": "error",
+                "message": f"Invoice {invoice_id} not found",
+            }
+
+        existing_address = InvoiceAddress.query.filter_by(
+            invoice_id=invoice.id,
+            crypto=crypto_name
+        ).first()
+
+        if existing_address:
+            rate = ExchangeRate.get(invoice.fiat, crypto_name)
+            amount_crypto, exchange_rate = rate.convert(invoice.amount_fiat)
+
+            return {
+                "status": "success",
+                "invoice_id": invoice.id,
+                "crypto": crypto_name,
+                "address": existing_address.addr,
+                "amount_crypto": format_decimal(amount_crypto),
+                "exchange_rate": format_decimal(exchange_rate, 2),
+            }
+
+        rate = ExchangeRate.get(invoice.fiat, crypto_name)
+        amount_crypto, exchange_rate = rate.convert(invoice.amount_fiat)
+
+        addr = InvoiceAddress.get_free_address(crypto, amount_crypto=amount_crypto)
+        InvoiceAddress.assign_to_invoice(addr, invoice.id)
+        db.session.commit()
+
+        app.logger.info(f"Assigned {crypto_name} address {addr} to invoice {invoice_id}")
+
+        return {
+            "status": "success",
+            "invoice_id": invoice.id,
+            "crypto": crypto_name,
+            "address": addr,
+            "amount_crypto": format_decimal(amount_crypto),
+            "exchange_rate": format_decimal(exchange_rate, 2),
+        }
+
+    except Exception as e:
+        app.logger.exception(f"Failed to get address for invoice {invoice_id}, crypto {crypto_name}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+@bp.get("/invoice/<int:invoice_id>/addresses")
+@api_key_required
+def get_invoice_addresses(invoice_id):
+    """
+    Получить все адреса, привязанные к инвойсу.
+    """
+    try:
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return {
+                "status": "error",
+                "message": f"Invoice {invoice_id} not found",
+            }
+
+        invoice_addresses = InvoiceAddress.query.filter_by(invoice_id=invoice.id).all()
+
+        addresses = []
+        for ia in invoice_addresses:
+            try:
+                rate = ExchangeRate.get(invoice.fiat, ia.crypto)
+                amount_crypto, exchange_rate = rate.convert(invoice.amount_fiat)
+                addresses.append({
+                    "crypto": ia.crypto,
+                    "address": ia.addr,
+                    "amount_crypto": format_decimal(amount_crypto),
+                    "exchange_rate": format_decimal(exchange_rate, 2),
+                })
+            except Exception as e:
+                addresses.append({
+                    "crypto": ia.crypto,
+                    "address": ia.addr,
+                    "amount_crypto": None,
+                    "exchange_rate": None,
+                    "error": str(e),
+                })
+
+        return {
+            "status": "success",
+            "invoice_id": invoice.id,
+            "external_id": invoice.external_id,
+            "fiat": invoice.fiat,
+            "amount_fiat": format_decimal(invoice.amount_fiat),
+            "addresses": addresses,
+        }
+
+    except Exception as e:
+        app.logger.exception(f"Failed to get addresses for invoice {invoice_id}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
