@@ -897,11 +897,73 @@ def get_invoice_addresses(invoice_id):
             "external_id": invoice.external_id,
             "fiat": invoice.fiat,
             "amount_fiat": format_decimal(invoice.amount_fiat),
+            "created_at": int(invoice.created_at.timestamp()),
             "addresses": addresses,
         }
 
     except Exception as e:
         app.logger.exception(f"Failed to get addresses for invoice {invoice_id}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+@bp.post("/invoice/<int:invoice_id>/cancel")
+@api_key_required
+def cancel_invoice(invoice_id):
+    """
+    Отменить инвойс и освободить все привязанные к нему адреса.
+    """
+    try:
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return {
+                "status": "error",
+                "message": f"Invoice {invoice_id} not found",
+            }
+
+        if invoice.status == InvoiceStatus.CANCELLED:
+            return {
+                "status": "error",
+                "message": f"Invoice {invoice_id} is already cancelled",
+            }
+
+        if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.OVERPAID):
+            return {
+                "status": "error",
+                "message": f"Cannot cancel invoice {invoice_id} with status {invoice.status.name}",
+            }
+
+        # Освобождаем все адреса, привязанные к инвойсу
+        invoice_addresses = InvoiceAddress.query.filter_by(invoice_id=invoice.id).all()
+        released_addresses = []
+        for ia in invoice_addresses:
+            released_addresses.append({"crypto": ia.crypto, "address": ia.addr})
+            ia.invoice_id = None
+
+        # Освобождаем основной адрес инвойса (если есть)
+        if invoice.addr:
+            InvoiceAddress.release_address(invoice.addr)
+
+        # Устанавливаем статус CANCELLED
+        invoice.status = InvoiceStatus.CANCELLED
+        db.session.commit()
+
+        app.logger.info(f"Invoice {invoice_id} cancelled, released {len(released_addresses)} addresses")
+
+        return {
+            "status": "success",
+            "invoice_id": invoice.id,
+            "external_id": invoice.external_id,
+            "message": f"Invoice {invoice_id} has been cancelled",
+            "released_addresses": released_addresses,
+        }
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.exception(f"Failed to cancel invoice {invoice_id}")
         return {
             "status": "error",
             "message": str(e),
