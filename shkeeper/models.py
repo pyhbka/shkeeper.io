@@ -396,6 +396,35 @@ class Invoice(db.Model):
         db.session.commit()
         return invoice
 
+    @classmethod
+    def add_without_address(cls, request):
+        """
+        Создать инвойс без привязки к криптовалюте и кошельку.
+
+        Args:
+            request: словарь с данными запроса
+                {"external_id": "1234", "fiat": "USD", "amount": 100.90, "callback_url": "https://..."}
+        """
+        invoice = cls.query.filter_by(
+            external_id=request["external_id"], callback_url=request["callback_url"]
+        ).first()
+
+        if invoice:
+            # updating existing invoice
+            invoice.fiat = request["fiat"]
+            invoice.amount_fiat = Decimal(request["amount"])
+        else:
+            # creating new invoice
+            invoice = cls()
+            invoice.external_id = request["external_id"]
+            invoice.callback_url = request["callback_url"]
+            invoice.fiat = request["fiat"]
+            invoice.amount_fiat = Decimal(request["amount"])
+            db.session.add(invoice)
+
+        db.session.commit()
+        return invoice
+
     def for_response(self):
         res = {
             "id": self.id,

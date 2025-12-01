@@ -127,6 +127,41 @@ def payment_request(crypto_name):
 
     return response
 
+
+@bp.post("/invoice")
+@api_key_required
+def create_invoice_without_address():
+    """
+    Создать инвойс без привязки кошелька.
+    Кошелёк можно привязать позже через /<crypto_name>/invoice/<invoice_id>/get_address
+
+    Request:
+    {
+        "external_id": "order_123",
+        "fiat": "USD",
+        "amount": 100.90,
+        "callback_url": "https://yoursite.com/callback"
+    }
+    """
+    try:
+        req = request.get_json(force=True)
+        invoice = Invoice.add_without_address(request=req)
+        response = {
+            "status": "success",
+            **invoice.for_response(),
+        }
+        app.logger.info({"request": req, "response": response})
+
+    except Exception as e:
+        app.logger.exception(f"Failed to create invoice for {req}")
+        response = {
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+    return response
+
 @bp.post("/<crypto_name>/quote")
 @api_key_required
 def get_crypto_quote(crypto_name):
