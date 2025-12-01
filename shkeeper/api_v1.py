@@ -128,7 +128,7 @@ def payment_request(crypto_name):
     return response
 
 
-@bp.post("/invoice")
+@bp.post("invoice")
 @api_key_required
 def create_invoice_without_address():
     """
@@ -861,6 +861,7 @@ def get_address_for_invoice(crypto_name, invoice_id):
                 "address": existing_address.addr,
                 "amount_crypto": format_decimal(amount_crypto),
                 "exchange_rate": format_decimal(exchange_rate, 2),
+                "recalculate_after": crypto.wallet.recalc if crypto.wallet else 0,
             }
 
         rate = ExchangeRate.get(invoice.fiat, crypto_name)
@@ -879,6 +880,7 @@ def get_address_for_invoice(crypto_name, invoice_id):
             "address": addr,
             "amount_crypto": format_decimal(amount_crypto),
             "exchange_rate": format_decimal(exchange_rate, 2),
+            "recalculate_after": crypto.wallet.recalc if crypto.wallet else 0,
         }
 
     except Exception as e:

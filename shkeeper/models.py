@@ -428,11 +428,11 @@ class Invoice(db.Model):
     def for_response(self):
         res = {
             "id": self.id,
-            "exchange_rate": format_decimal(self.exchange_rate, 2),
-            "amount": format_decimal(self.amount_crypto),
+            "exchange_rate": format_decimal(self.exchange_rate, 2) if self.exchange_rate else None,
+            "amount": format_decimal(self.amount_crypto) if self.amount_crypto else None,
             "wallet": self.addr,
-            "recalculate_after": self.wallet.recalc,
-            "display_name": Crypto.instances[self.crypto].display_name,
+            "recalculate_after": self.wallet.recalc if self.wallet else 0,
+            "display_name": Crypto.instances[self.crypto].display_name if self.crypto else None,
         }
 
         if "BTC-LIGHTNING" == self.crypto:
