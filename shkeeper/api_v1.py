@@ -148,7 +148,8 @@ def create_invoice_without_address():
         invoice = Invoice.add_without_address(request=req)
         response = {
             "status": "success",
-            **invoice.for_response(),
+            "id": invoice.id,
+            "amount": format_decimal(invoice.amount_fiat),
         }
         app.logger.info({"request": req, "response": response})
 
