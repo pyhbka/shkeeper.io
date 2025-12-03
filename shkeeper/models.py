@@ -209,6 +209,7 @@ class InvoiceStatus(enum.Enum):
     CANCELLED = enum.auto()
     REFUNDED = enum.auto()
     OUTGOING = enum.auto()
+    EXPIRED = enum.auto()  # Invoice expired after 1 hour, address released after 1.5 hours
 
 
 class Invoice(db.Model):
