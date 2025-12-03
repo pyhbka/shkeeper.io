@@ -145,6 +145,60 @@ def create_invoice_without_address():
     """
     try:
         req = request.get_json(force=True)
+
+        # Validate required fields
+        required_fields = ["external_id", "fiat", "amount", "callback_url"]
+        missing_fields = [f for f in required_fields if f not in req or req[f] is None]
+        if missing_fields:
+            return {
+                "status": "error",
+                "message": f"Missing required fields: {', '.join(missing_fields)}",
+            }
+
+        # Validate external_id
+        external_id = req["external_id"]
+        if not isinstance(external_id, str) or not external_id.strip():
+            return {
+                "status": "error",
+                "message": "Field 'external_id' must be a non-empty string",
+            }
+
+        # Validate fiat currency
+        fiat = req["fiat"]
+        supported_fiats = Fiat.list()
+        if fiat not in supported_fiats:
+            return {
+                "status": "error",
+                "message": f"Unsupported fiat currency: {fiat}. Supported: {', '.join(supported_fiats)}",
+            }
+
+        # Validate amount
+        try:
+            amount = Decimal(str(req["amount"]))
+            if amount <= 0:
+                return {
+                    "status": "error",
+                    "message": "Field 'amount' must be a positive number",
+                }
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Field 'amount' must be a valid number",
+            }
+
+        # Validate callback_url
+        callback_url = req["callback_url"]
+        if not isinstance(callback_url, str) or not callback_url.strip():
+            return {
+                "status": "error",
+                "message": "Field 'callback_url' must be a non-empty string",
+            }
+        if not callback_url.startswith(("http://", "https://")):
+            return {
+                "status": "error",
+                "message": "Field 'callback_url' must be a valid HTTP/HTTPS URL",
+            }
+
         invoice = Invoice.add_without_address(request=req)
         response = {
             "status": "success",
