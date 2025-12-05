@@ -598,7 +598,7 @@ class Transaction(db.Model):
     def is_more_confirmations_needed(self):
         crypto = Crypto.instances[self.crypto]
         confirmations = crypto.get_confirmations_by_txid(self.txid)
-        if confirmations >= self.invoice.wallet.confirmations:
+        if confirmations >= self.wallet.confirmations:
             self.need_more_confirmations = False
             db.session.commit()
         return self.need_more_confirmations
