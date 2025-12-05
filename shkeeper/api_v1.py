@@ -498,7 +498,8 @@ def walletnotify(crypto_name, txid):
                         "confirmations": confirmations,
                     },
                 )
-                tx.invoice.update_with_tx(tx)
+                if tx.invoice_id != 0:
+                    tx.invoice.update_with_tx(tx)
                 UnconfirmedTransaction.delete(crypto_name, txid)
                 app.logger.info(f"[{crypto.crypto}/{txid}] TX has been added to db")
                 if not tx.need_more_confirmations and tx.invoice_id != 0:
