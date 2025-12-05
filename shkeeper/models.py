@@ -518,6 +518,7 @@ class Transaction(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
     txid = db.Column(db.String)
     crypto = db.Column(db.String)
+    addr = db.Column(db.String, index=True)
     amount_crypto = db.Column(db.Numeric)
     amount_fiat = db.Column(db.Numeric)
     need_more_confirmations = db.Column(db.Boolean, default=True)
@@ -547,13 +548,8 @@ class Transaction(db.Model):
         return ExchangeRate.get(self.invoice.fiat, self.crypto)
 
     @property
-    def addr(self):
-        if invoice_address := InvoiceAddress.query.filter_by(
-            crypto=self.crypto, invoice_id=self.invoice_id
-        ).first():
-            return invoice_address.addr
-        else:
-            return self.invoice.addr
+    def wallet(self) -> "Wallet":
+        return Wallet.query.filter_by(crypto=self.crypto).first()
 
     @classmethod
     def add_outgoing(cls, crypto, txid):

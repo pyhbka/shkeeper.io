@@ -85,7 +85,7 @@ def send_notification(tx):
     notification = {
         "external_id": tx.invoice.external_id,
         "crypto": tx.invoice.crypto,
-        "addr": tx.invoice.addr,
+        "addr": tx.addr,
         "fiat": tx.invoice.fiat,
         "balance_fiat": remove_exponent(tx.invoice.balance_fiat),
         "balance_crypto": remove_exponent(tx.invoice.balance_crypto),
@@ -102,7 +102,7 @@ def send_notification(tx):
     }
 
     overpaid_fiat = tx.invoice.balance_fiat - (
-        tx.invoice.amount_fiat * (tx.invoice.wallet.ulimit / 100)
+        tx.invoice.amount_fiat * (tx.wallet.ulimit / 100)
     )
     notification["overpaid_fiat"] = (
         str(round(overpaid_fiat.normalize(), 2)) if overpaid_fiat > 0 else "0.00"
@@ -168,8 +168,9 @@ def send_callbacks():
                     tx.callback_confirmed = True
                     db.session.commit()
                 else:
-                    app.logger.info(f"[{tx.crypto}/{tx.txid}] Notification is pending")
-                    send_notification(tx)
+                    if tx.invoice_id != 0:
+                        app.logger.info(f"[{tx.crypto}/{tx.txid}] Notification is pending")
+                        send_notification(tx)
             else:
                 app.logger.info(
                     f"[{tx.crypto}/{tx.txid}] delaying notification created at {tx.created_at} until {delay_until_date}"
