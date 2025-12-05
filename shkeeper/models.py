@@ -263,9 +263,9 @@ class Invoice(db.Model):
 
     def update_with_tx(self, tx):
         # recalculate amount_crypto according to current exchange rate if enabled
-        if tx.invoice.wallet.recalc > 0:
+        if tx.wallet.recalc > 0:
             if (
-                tx.invoice.created_at + timedelta(hours=tx.invoice.wallet.recalc)
+                tx.invoice.created_at + timedelta(hours=tx.wallet.recalc)
             ) < datetime.now():
                 (
                     tx.invoice.amount_crypto,
@@ -283,11 +283,11 @@ class Invoice(db.Model):
 
         # change invoice status according to its new balance
         if tx.invoice.balance_fiat < (
-            tx.invoice.amount_fiat * (tx.invoice.wallet.llimit / 100)
+            tx.invoice.amount_fiat * (tx.wallet.llimit / 100)
         ):
             tx.invoice.status = InvoiceStatus.PARTIAL
         elif tx.invoice.balance_fiat < (
-            tx.invoice.amount_fiat * (tx.invoice.wallet.ulimit / 100)
+            tx.invoice.amount_fiat * (tx.wallet.ulimit / 100)
         ):
             tx.invoice.status = InvoiceStatus.PAID
             # Освобождаем адрес при оплате
@@ -585,8 +585,7 @@ class Transaction(db.Model):
         else:
             invoice = Invoice.query.filter_by(id=invoice_address.invoice_id).first()
 
-        if not invoice:
-            raise NotRelatedToAnyInvoice(f"{tx['addr']} is not related to any invoice")
+        fiat = invoice.fiat if invoice else "USD"
 
         t = cls()
         t.invoice_id = invoice.id
