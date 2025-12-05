@@ -414,6 +414,8 @@ class Invoice(db.Model):
             # updating existing invoice
             invoice.fiat = request["fiat"]
             invoice.amount_fiat = Decimal(request["amount"])
+            # amount_crypto = 0, так как crypto инвойсу не задан
+            invoice.amount_crypto = Decimal(0)
         else:
             # creating new invoice
             invoice = cls()
@@ -421,6 +423,8 @@ class Invoice(db.Model):
             invoice.callback_url = request["callback_url"]
             invoice.fiat = request["fiat"]
             invoice.amount_fiat = Decimal(request["amount"])
+            # amount_crypto = 0, так как crypto инвойсу не задан
+            invoice.amount_crypto = Decimal(0)
             db.session.add(invoice)
 
         db.session.commit()
