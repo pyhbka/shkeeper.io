@@ -576,27 +576,17 @@ class Transaction(db.Model):
     @classmethod
     def add(cls, crypto, tx):
         invoice_address = InvoiceAddress.query.filter_by(addr=tx["addr"]).first()
-
-        if not invoice_address:
-            # Check address in Invoice table in case the instance was upgraded from older version that does not have InvoiceAddress table
-            invoice = Invoice.query.filter(
-                Invoice.addr == tx["addr"], Invoice.status != InvoiceStatus.OUTGOING
-            ).first()
-        else:
-            invoice = Invoice.query.filter_by(id=invoice_address.invoice_id).first()
+        invoice = Invoice.query.filter_by(id=invoice_address.invoice_id).first()
 
         fiat = invoice.fiat if invoice else "USD"
 
         t = cls()
-        t.invoice_id = invoice.id
+        t.invoice_id = invoice.id if invoice else 0
         t.txid = tx["txid"]
         t.crypto = crypto.crypto
         t.amount_crypto = tx["amount"]
-        if invoice.crypto != crypto.crypto:
-            rate = ExchangeRate.get(invoice.fiat, crypto.crypto).get_rate()
-            t.amount_fiat = t.amount_crypto * rate
-        else:
-            t.amount_fiat = t.amount_crypto * invoice.exchange_rate
+        rate = ExchangeRate.get(fiat, crypto.crypto).get_rate()
+        t.amount_fiat = t.amount_crypto * rate
 
         if tx["confirmations"] >= crypto.wallet.confirmations:
             t.need_more_confirmations = False
