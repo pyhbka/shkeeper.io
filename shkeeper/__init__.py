@@ -47,13 +47,27 @@ migrate = flask_migrate.Migrate()
 def create_app(test_config=None):
     """Create and configure an instance of the Flask application."""
     app = Flask(__name__, instance_relative_config=True)
+
+    # Build MySQL connection string from environment variables
+    mysql_host = os.environ.get("MYSQL_HOST", "localhost")
+    mysql_port = os.environ.get("MYSQL_PORT", "3306")
+    mysql_user = os.environ.get("MYSQL_USER", "shkeeper")
+    mysql_password = os.environ.get("MYSQL_PASSWORD", "")
+    mysql_database = os.environ.get("MYSQL_DATABASE", "shkeeper")
+
+    # Construct MySQL URI
+    mysql_uri = f"mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}:{mysql_port}/{mysql_database}?charset=utf8mb4"
+
     app.config.from_mapping(
         # a default secret that should be overridden by instance config
         SECRET_KEY="dev",
-        # store the database in the instance folder
-        DATABASE=os.path.join(app.instance_path, "shkeeper.sqlite"),
-        SQLALCHEMY_DATABASE_URI="sqlite:///"
-        + os.path.join(app.instance_path, "shkeeper.sqlite"),
+        # MySQL database connection
+        SQLALCHEMY_DATABASE_URI=mysql_uri,
+        SQLALCHEMY_ENGINE_OPTIONS={
+            'pool_size': 10,
+            'pool_recycle': 3600,
+            'pool_pre_ping': True,
+        },
         SUGGESTED_WALLET_APIKEY=secrets.token_urlsafe(16),
         SESSION_TYPE="filesystem",
         SESSION_FILE_DIR=os.path.join(app.instance_path, "flask_session"),

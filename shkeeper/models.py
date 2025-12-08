@@ -19,14 +19,17 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     passhash = db.Column(db.String(120))
-    api_key = db.Column(db.String)
+    api_key = db.Column(db.String(255))
 
     @staticmethod
     def get_password_hash(password):
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
+        hash_bytes = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
+        return hash_bytes.decode('utf-8')  # Convert bytes to str for MySQL compatibility
 
     def verify_password(self, password):
-        return bcrypt.checkpw(password.encode(), self.passhash)
+        # MySQL stores passhash as string, need to convert back to bytes
+        passhash_bytes = self.passhash.encode('utf-8') if isinstance(self.passhash, str) else self.passhash
+        return bcrypt.checkpw(password.encode(), passhash_bytes)
 
     @classmethod
     def get_api_key(cls):
@@ -35,9 +38,9 @@ class User(db.Model):
 
 class PayoutDestination(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    crypto = db.Column(db.String)
-    addr = db.Column(db.String, nullable=False)
-    comment = db.Column(db.String, default="")
+    crypto = db.Column(db.String(50))
+    addr = db.Column(db.String(255), nullable=False)
+    comment = db.Column(db.String(500), default="")
 
     __table_args__ = (db.UniqueConstraint("crypto", "addr"),)
 
@@ -56,21 +59,21 @@ class Fiat:
 
 class Wallet(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    crypto = db.Column(db.String, unique=True, nullable=False)
-    serverkey = db.Column(db.String)
-    pdest = db.Column(db.String)
-    pfee = db.Column(db.String)
+    crypto = db.Column(db.String(50), unique=True, nullable=False)
+    serverkey = db.Column(db.String(500))
+    pdest = db.Column(db.String(255))
+    pfee = db.Column(db.String(50))
     payout = db.Column(db.Boolean, default=False)
     ppolicy = db.Column(db.Enum(PayoutPolicy), default=PayoutPolicy.MANUAL)
-    pcond = db.Column(db.String)
+    pcond = db.Column(db.String(100))
     last_payout_attempt = db.Column(db.DateTime, default=datetime.min)
     enabled = db.Column(db.Boolean, default=True)
-    apikey = db.Column(db.String)
+    apikey = db.Column(db.String(255))
     llimit = db.Column(db.Numeric, default=95)
     ulimit = db.Column(db.Numeric, default=105)
     recalc = db.Column(db.Integer, default=0)
     confirmations = db.Column(db.Integer, default=1)
-    bkey = db.Column(db.String)
+    bkey = db.Column(db.String(500))
 
     @classmethod
     def register_currency(cls, crypto):
@@ -125,9 +128,9 @@ class FeeCalculationPolicy(namedtuple("FeeCalculationPolicy", "name desc"), enum
 
 class ExchangeRate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    source = db.Column(db.String, default="dynamic")  # manual or dynamic (binance, etc)
-    crypto = db.Column(db.String)
-    fiat = db.Column(db.String)
+    source = db.Column(db.String(50), default="dynamic")  # manual or dynamic (binance, etc)
+    crypto = db.Column(db.String(50))
+    fiat = db.Column(db.String(10))
     rate = db.Column(
         db.Numeric, default=0
     )  # crypto / fiat, only used is source is manual
@@ -219,11 +222,11 @@ class Invoice(db.Model):
         "UnconfirmedTransaction", backref="invoice", lazy=True
     )
     addresses = db.relationship("InvoiceAddress", backref="invoice", lazy=True)
-    crypto = db.Column(db.String)
-    addr = db.Column(db.String, index=True)
-    external_id = db.Column(db.String)
-    fiat = db.Column(db.String)
-    callback_url = db.Column(db.String)
+    crypto = db.Column(db.String(50))
+    addr = db.Column(db.String(500), index=True)
+    external_id = db.Column(db.String(255))
+    fiat = db.Column(db.String(10))
+    callback_url = db.Column(db.String(1000))
     balance_fiat = db.Column(db.Numeric, default=0)
     balance_crypto = db.Column(db.Numeric, default=0)
     amount_fiat = db.Column(db.Numeric)
@@ -460,9 +463,9 @@ class Invoice(db.Model):
 class UnconfirmedTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
-    addr = db.Column(db.String)
-    txid = db.Column(db.String)
-    crypto = db.Column(db.String)
+    addr = db.Column(db.String(500))
+    txid = db.Column(db.String(255))
+    crypto = db.Column(db.String(50))
     amount_crypto = db.Column(db.Numeric)
     callback_confirmed = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
@@ -520,9 +523,9 @@ class UnconfirmedTransaction(db.Model):
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
-    txid = db.Column(db.String)
-    crypto = db.Column(db.String)
-    addr = db.Column(db.String, index=True)
+    txid = db.Column(db.String(255))
+    crypto = db.Column(db.String(50))
+    addr = db.Column(db.String(255), index=True)
     amount_crypto = db.Column(db.Numeric)
     amount_fiat = db.Column(db.Numeric)
     need_more_confirmations = db.Column(db.Boolean, default=True)
